@@ -21,8 +21,9 @@
 
 [submodule "submodules/cabal-helper"]
 	path = submodules/cabal-helper
+	url = https://github.com/lonelyhentai/cabal-helper.git
 	# url = https://github.com/arbor/cabal-helper.git
-	url = https://github.com/alanz/cabal-helper.git
+	# url = https://github.com/alanz/cabal-helper.git
 	# url = https://github.com/DanielG/cabal-helper.git
 
 [submodule "submodules/ghc-mod"]
