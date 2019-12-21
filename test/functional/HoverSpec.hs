@@ -15,16 +15,20 @@ spec :: Spec
 spec = describe "hover" $
   it "works" $ runSession hieCommand fullCaps "test/testdata" $ do
     doc <- openDoc "Hover.hs" "haskell"
-    _ <- skipManyTill loggingNotification $ count 2 noDiagnostics
+    _ <- count 2 $ skipManyTill loggingNotification noDiagnostics
     Just h <- getHover doc (Position 1 19)
     liftIO $ do
       h ^. range `shouldBe` Just (Range (Position 1 16) (Position 1 19))
-      let hasType (CodeString (LanguageString "haskell" "sum :: [Int] -> Int")) = True
+      let
+          hasType (HoverContents (MarkupContent MkMarkdown s))
+            = "\n```haskell\nsum :: [Int] -> Int\n```" `T.isPrefixOf`s
           hasType _ = False
 
           sumDoc = "The `sum` function computes the sum of the numbers of a structure."
 
-          hasDoc (PlainString s) = sumDoc `T.isInfixOf` s
+          hasDoc (HoverContents (MarkupContent MkMarkdown s))
+            = sumDoc `T.isInfixOf` s
           hasDoc _               = False
-      h ^. contents `shouldSatisfy` any hasType
-      h ^. contents `shouldSatisfy` any hasDoc
+
+      h ^. contents `shouldSatisfy` hasType
+      h ^. contents `shouldSatisfy` hasDoc

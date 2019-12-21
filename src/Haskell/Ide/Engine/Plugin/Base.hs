@@ -11,14 +11,14 @@ import           Data.Aeson
 import           Data.Foldable
 import qualified Data.Map                        as Map
 import           Data.Maybe
-#if __GLASGOW_HASKELL__ < 804
-import           Data.Semigroup
-#endif
 import qualified Data.Text                       as T
+import qualified Data.Versions                   as V
 import           Development.GitRev              (gitCommitCount)
 import           Distribution.System             (buildArch)
 import           Distribution.Text               (display)
 import           Haskell.Ide.Engine.MonadTypes
+import           Haskell.Ide.Engine.Cradle (isStackCradle)
+import qualified HIE.Bios.Types as BIOS
 import           Options.Applicative.Simple      (simpleVersion)
 import qualified Paths_haskell_ide_engine        as Meta
 
@@ -44,6 +44,7 @@ baseDescriptor plId = PluginDescriptor
   , pluginDiagnosticProvider = Nothing
   , pluginHoverProvider = Nothing
   , pluginSymbolProvider = Nothing
+  , pluginFormattingProvider = Nothing
   }
 
 -- ---------------------------------------------------------------------
@@ -103,11 +104,10 @@ version =
 hieGhcDisplayVersion :: String
 hieGhcDisplayVersion = compilerName ++ "-" ++ VERSION_ghc
 
-getProjectGhcVersion :: IO String
-getProjectGhcVersion = do
-  isStackProject   <- doesFileExist "stack.yaml"
+getProjectGhcVersion :: BIOS.Cradle -> IO String
+getProjectGhcVersion crdl = do
   isStackInstalled <- isJust <$> findExecutable "stack"
-  if isStackProject && isStackInstalled
+  if isStackCradle crdl && isStackInstalled
     then do
       L.infoM "hie" "Using stack GHC version"
       catch (tryCommand "stack ghc -- --numeric-version") $ \e -> do
@@ -125,11 +125,31 @@ getProjectGhcVersion = do
         then tryCommand "ghc --numeric-version"
         else return "No System GHC found"
 
-    tryCommand cmd =
-      init <$> readCreateProcess (shell cmd) ""
+
+tryCommand :: String -> IO String
+tryCommand cmd =
+  init <$> readCreateProcess (shell cmd) ""
 
 hieGhcVersion :: String
 hieGhcVersion = VERSION_ghc
+
+-- ---------------------------------------------------------------------
+
+getStackVersion :: IO (Maybe V.Version)
+getStackVersion = do
+  isStackInstalled   <- isJust <$> findExecutable "stack"
+  if isStackInstalled
+    then do
+      versionStr <- tryCommand "stack --numeric-version"
+      case V.version (T.pack versionStr) of
+        Left _err -> return Nothing
+        Right v -> return (Just v)
+    else return Nothing
+
+stack193Version :: V.Version
+stack193Version = case V.version "1.9.3" of
+  Left err -> error $ "stack193Version:err=" ++ show err
+  Right v -> v
 
 -- ---------------------------------------------------------------------
 

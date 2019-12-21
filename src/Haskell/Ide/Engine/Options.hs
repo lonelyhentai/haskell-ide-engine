@@ -1,9 +1,6 @@
 {-# LANGUAGE CPP #-}
 module Haskell.Ide.Engine.Options where
 
-#if __GLASGOW_HASKELL__ < 804
-import           Data.Semigroup             hiding (option)
-#endif
 import           Options.Applicative.Simple
 
 data GlobalOpts = GlobalOpts
@@ -12,7 +9,7 @@ data GlobalOpts = GlobalOpts
   , optLsp           :: Bool
   , optJson          :: Bool
   , projectRoot      :: Maybe String
-  , optGhcModVomit   :: Bool
+  , optBiosVerbose   :: Bool
   , optCaptureFile   :: Maybe FilePath
   , optExamplePlugin :: Bool
   } deriving (Show)
@@ -41,9 +38,16 @@ globalOptsParser = GlobalOpts
       <> short 'r'
       <> metavar "PROJECTROOT"
       <> help "Root directory of project, defaults to cwd"))
-  <*> switch
-       ( long "vomit"
-       <> help "enable vomit logging for ghc-mod")
+  <*> (switch
+          ( long "bios-verbose"
+          <> help "enable verbose logging for hie-bios"
+          )
+       <|>
+       switch
+          ( long "vomit"
+          <> help "(deprecated) enable verbose logging for hie-bios"
+          )
+      )
   <*> optional (strOption
        ( long "capture"
       <> short 'c'

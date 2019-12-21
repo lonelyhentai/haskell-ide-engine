@@ -1,17 +1,14 @@
-{-# LANGUAGE CPP                   #-}
 {-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE NamedFieldPuns        #-}
 module Haskell.Ide.Engine.Plugin.Liquid where
 
-import           Control.Concurrent.Async
+import           Control.Concurrent.Async.Lifted
 import           Control.Monad
 import           Control.Monad.IO.Class
+import Control.Monad.Trans.Class
 import           Control.Exception (bracket)
-#if __GLASGOW_HASKELL__ < 804
-import           Data.Monoid
-#endif
 import           Data.Aeson
 import qualified Data.ByteString.Lazy          as BS
 import qualified Data.Map                      as Map
@@ -48,6 +45,7 @@ liquidDescriptor plId = PluginDescriptor
                                     (DiagnosticProviderAsync diagnosticProvider))
   , pluginHoverProvider      = Just hoverProvider
   , pluginSymbolProvider     = Nothing
+  , pluginFormattingProvider = Nothing
   }
 
 -- ---------------------------------------------------------------------
@@ -119,7 +117,11 @@ diagnosticProvider DiagnosticOnSave uri cb = pluginGetFile "Liquid.diagnosticPro
     LiquidData mtid <- get
     mapM_ (liftIO . cancel) mtid
 
-    tid <- liftIO $ async $ generateDiagnosics cb uri file
+    let progTitle = "Running Liquid Haskell on " <> T.pack (takeFileName file)
+    tid <- lift $ async $
+      withIndefiniteProgress progTitle NotCancellable $
+        liftIO $ generateDiagnosics cb uri file
+
     put (LiquidData (Just tid))
 
     return $ IdeResultOk ()
@@ -150,7 +152,7 @@ generateDiagnosics cb uri file = do
 
 -- ---------------------------------------------------------------------
 
--- Find and run the liquid haskell executable
+-- | Find and run the liquid haskell executable
 runLiquidHaskell :: FilePath -> IO (Maybe (ExitCode,[String]))
 runLiquidHaskell fp = do
   mexe <- findExecutable "liquid"
@@ -162,13 +164,23 @@ runLiquidHaskell fp = do
       let cmd = lh ++ " --json \"" ++ fp ++ "\""
           dir = takeDirectory fp
           cp = (shell cmd) { cwd = Just dir }
-      logm $ "runLiquidHaskell:cmd=[" ++ cmd ++ "]"
+      -- logm $ "runLiquidHaskell:cmd=[" ++ cmd ++ "]"
       mpp <- lookupEnv "GHC_PACKAGE_PATH"
+      mge <- lookupEnv "GHC_ENVIRONMENT"
+      -- logm $ "runLiquidHaskell:mpp=[" ++ show mpp ++ "]"
+      -- env <- getEnvironment
+      -- logm $ "runLiquidHaskell:env=[" ++ show env ++ "]"
       (ec,o,e) <- bracket
-        (unsetEnv "GHC_PACKAGE_PATH")
-        (\_ -> mapM_ (setEnv "GHC_PACKAGE_PATH") mpp)
+        (do
+            unsetEnv "GHC_ENVIRONMENT"
+            unsetEnv "GHC_PACKAGE_PATH"
+        )
+        (\_ -> do
+            mapM_ (setEnv "GHC_PACKAGE_PATH") mpp
+            mapM_ (setEnv "GHC_ENVIRONMENT" ) mge
+        )
         (\_ -> readCreateProcessWithExitCode cp "")
-      logm $ "runLiquidHaskell:v=" ++ show (ec,o,e)
+      -- logm $ "runLiquidHaskell:v=" ++ show (ec,o,e)
       return $ Just (ec,[o,e])
 
 -- ---------------------------------------------------------------------
@@ -257,8 +269,8 @@ hoverProvider uri pos =
                 ls    = getThingsAtPos info pos perrs
             hs <- forM ls $ \(r,LE _s _e msg) -> do
               let msgs = T.splitOn "\\n" msg
-                  msg' = J.CodeString (J.LanguageString "haskell" (T.unlines msgs))
-              return $ J.Hover (J.List [msg']) (Just r)
+                  msgm = J.markedUpContent "haskell" (T.unlines msgs)
+              return $ J.Hover (J.HoverContents msgm) (Just r)
             return (IdeResultOk hs)
 
 -- ---------------------------------------------------------------------

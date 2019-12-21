@@ -4,6 +4,7 @@
 module ApplyRefactPluginSpec where
 
 import qualified Data.HashMap.Strict                   as H
+import qualified Data.Text                             as T
 import           Haskell.Ide.Engine.Plugin.ApplyRefact
 import           Haskell.Ide.Engine.MonadTypes
 import           Haskell.Ide.Engine.PluginUtils
@@ -74,13 +75,13 @@ applyRefactSpec = do
              , _diagnostics = List $
                [ Diagnostic (Range (Position 1 7) (Position 1 25))
                             (Just DsHint)
-                            (Just "Redundant bracket")
+                            (Just (StringValue "Redundant bracket"))
                             (Just "hlint")
                             "Redundant bracket\nFound:\n  (putStrLn \"hello\")\nWhy not:\n  putStrLn \"hello\"\n"
                             Nothing
                , Diagnostic (Range (Position 3 8) (Position 3 15))
                             (Just DsHint)
-                            (Just "Redundant bracket")
+                            (Just (StringValue "Redundant bracket"))
                             (Just "hlint")
                             "Redundant bracket\nFound:\n  (x + 1)\nWhy not:\n  x + 1\n"
                             Nothing
@@ -90,7 +91,8 @@ applyRefactSpec = do
     -- ---------------------------------
 
     it "returns hlint parse error as DsInfo ignored diagnostic" $ do
-      filePath  <- filePathToUri <$> makeAbsolute "./test/testdata/HlintParseFail.hs"
+      filePathNoUri  <- makeAbsolute "./test/testdata/HlintParseFail.hs"
+      let filePath = filePathToUri filePathNoUri
 
       let act = lintCmd' arg
           arg = filePath
@@ -98,23 +100,13 @@ applyRefactSpec = do
             PublishDiagnosticsParams
              { _uri = filePath
              , _diagnostics = List
-#if (defined(MIN_VERSION_GLASGOW_HASKELL) && (MIN_VERSION_GLASGOW_HASKELL(8,2,2,0)))
-               [Diagnostic {_range = Range { _start = Position {_line = 13, _character = 0}
-                                           , _end = Position {_line = 13, _character = 100000}}
+               [Diagnostic {_range = Range { _start = Position {_line = 12, _character = 23}
+                                           , _end = Position {_line = 12, _character = 100000}}
                            , _severity = Just DsInfo
-                           , _code = Just "parser"
+                           , _code = Just (StringValue "parser")
                            , _source = Just "hlint"
-                           , _message = "Parse error: virtual }\n  data instance Sing (z :: (a :~: b)) where\n      SRefl :: Sing Refl +\n> \n\n"
+                           , _message = T.pack filePathNoUri <> ":13:24: error:\n    Operator applied to too few arguments: +\n  data instance Sing (z :: (a :~: b)) where\n>     SRefl :: Sing Refl +\n\n"
                            , _relatedInformation = Nothing }]}
-#else
-               [Diagnostic {_range = Range { _start = Position {_line = 11, _character = 28}
-                                           , _end = Position {_line = 11, _character = 100000}}
-                           , _severity = Just DsInfo
-                           , _code = Just "parser"
-                           , _source = Just "hlint"
-                           , _message = "Parse error: :~:\n  import           Data.Type.Equality            ((:~:) (..), (:~~:) (..))\n  \n> data instance Sing (z :: (a :~: b)) where\n      SRefl :: Sing Refl +\n\n"
-                           , _relatedInformation = Nothing }]}
-#endif
       testCommand testPlugins act "applyrefact" "lint" arg res
 
     -- ---------------------------------
@@ -131,7 +123,7 @@ applyRefactSpec = do
             , _diagnostics = List
               [ Diagnostic (Range (Position 3 11) (Position 3 20))
                            (Just DsInfo)
-                           (Just "Redundant bracket")
+                           (Just (StringValue "Redundant bracket"))
                            (Just "hlint")
                            "Redundant bracket\nFound:\n  (\"hello\")\nWhy not:\n  \"hello\"\n"
                            Nothing
@@ -154,3 +146,15 @@ applyRefactSpec = do
             , _diagnostics = List []
             }
            ))
+
+    -- ---------------------------------
+
+    it "reports error without crash" $ do
+      filePath  <- filePathToUri <$> makeAbsolute "./test/testdata/ApplyRefactError.hs"
+
+      let req = applyAllCmd' filePath
+          isExpectedError (IdeResultFail (IdeError PluginError err _)) =
+              "Illegal symbol '.' in type" `T.isInfixOf` err
+          isExpectedError _ = False
+      r <- withCurrentDirectory "./test/testdata" $ runIGM testPlugins req
+      r `shouldSatisfy` isExpectedError

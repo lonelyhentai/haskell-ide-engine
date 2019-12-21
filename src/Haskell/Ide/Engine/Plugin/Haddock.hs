@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP                 #-}
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RankNTypes          #-}
@@ -9,29 +8,24 @@ module Haskell.Ide.Engine.Plugin.Haddock where
 import           Control.Monad.State
 import           Data.Foldable
 import qualified Data.Map                                     as Map
-#if __GLASGOW_HASKELL__ < 804
-import           Data.Monoid
-#endif
 import qualified Data.Text                                    as T
 import           Data.IORef
 import Data.Function
 import Data.Maybe
 import Data.List
-import           System.Directory
-import           System.FilePath
 import           GHC
 import           GhcMonad
-import qualified GhcMod.Monad                                 as GM
-import qualified GhcMod.LightGhc                              as GM
-import           Haskell.Ide.Engine.MonadTypes
 import           Haskell.Ide.Engine.MonadFunctions
-import           Haskell.Ide.Engine.Plugin.HieExtras
+import           Haskell.Ide.Engine.MonadTypes
 import qualified Haskell.Ide.Engine.Plugin.Hoogle             as Hoogle
 import           Haskell.Ide.Engine.PluginUtils
-import qualified Language.Haskell.LSP.Types as J
+import           Haskell.Ide.Engine.Support.HieExtras
 import           HscTypes
+import qualified Language.Haskell.LSP.Types as J
 import           Name
 import           Packages
+import           System.Directory
+import           System.FilePath
 
 
 import Documentation.Haddock
@@ -47,6 +41,7 @@ haddockDescriptor plId = PluginDescriptor
   , pluginDiagnosticProvider = Nothing
   , pluginHoverProvider = Just hoverProvider
   , pluginSymbolProvider = Nothing
+  , pluginFormattingProvider = Nothing
   }
 
 
@@ -85,13 +80,15 @@ nameCacheFromGhcMonad = ( read_from_session , write_to_session )
        ref <- withSession (return . hsc_NC)
        liftIO $ writeIORef ref nc'
 
-runInLightGhc :: GM.LightGhc a -> IdeM a
+runInLightGhc :: Ghc a -> IdeM a
 runInLightGhc a = do
   hscEnvRef <- ghcSession <$> readMTS
   mhscEnv <- liftIO $ traverse readIORef hscEnvRef
-  case mhscEnv of
+  liftIO $ case mhscEnv of
     Nothing -> error "Ghc Session not initialized"
-    Just env -> GM.runLightGhc env a
+    Just env -> do
+      session <- Session <$> newIORef env
+      unGhc a session
 
 nameCacheFromIdeM :: NameCacheAccessor IdeM
 nameCacheFromIdeM = ( read_from_session , write_to_session )
@@ -174,7 +171,7 @@ renderMarkDown =
          , markupOrderedList =
              T.unlines . zipWith (\i n -> T.pack (show (i :: Int)) <> ". " <> n) [1..]
          , markupDefList = T.unlines . map (\(a, b) -> a <> " :: " <> b)
-         , markupCodeBlock = \x -> "\n```haskell\n" <> removeInner x <> "```"
+         , markupCodeBlock = \x -> "\n```haskell\n" <> removeInner x <> "\n```\n"
          , markupHyperlink = \h ->
              T.pack $ maybe
                (hyperlinkUrl h)
@@ -195,9 +192,7 @@ renderMarkDown =
              ["```\n"])
          , markupHeader = \h ->
              T.replicate (headerLevel h) "#" <> " " <> headerTitle h <> "\n"
-#if __GLASGOW_HASKELL__ >= 804
          , markupTable = mempty
-#endif
          }
     where surround c x = c <> T.replace c "" x <> c
           removeInner x = T.replace "```" "" $ T.replace "```haskell" "" x
@@ -222,7 +217,7 @@ hoverProvider doc pos = pluginGetFile "haddock:hoverProvider" doc $ \fp ->
           return $ case mdocu of
             Nothing -> mname <> minfo
             Just docu -> docu <> "\n\n" <> minfo
-    return [J.Hover (J.List $ fmap J.PlainString docs) Nothing]
+    return [J.Hover (J.HoverContents $ J.MarkupContent J.MkMarkdown (T.intercalate J.sectionSeparator docs)) Nothing]
   where
     pickName [] = Nothing
     pickName [x] = Just x

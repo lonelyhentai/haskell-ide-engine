@@ -1,10 +1,10 @@
 {-# LANGUAGE CPP, OverloadedStrings, NamedFieldPuns #-}
 module TestUtils
   (
-    testOptions
-  , withFileLogging
-  , setupStackFiles
+    withFileLogging
+  , setupBuildToolFiles
   , testCommand
+  , runSingle
   , runSingleReq
   , makeRequest
   , runIGM
@@ -14,6 +14,8 @@ module TestUtils
   , hieCommandVomit
   , hieCommandExamplePlugin
   , getHspecFormattedConfig
+  , testOptions
+  , flushStackEnvironment
   ) where
 
 import           Control.Concurrent.STM
@@ -25,8 +27,8 @@ import           Data.Typeable
 import           Data.Yaml
 import qualified Data.Map as Map
 import           Data.Maybe
-import qualified GhcMod.Monad as GM
-import qualified GhcMod.Types as GM
+-- import qualified GhcMod.Monad as GM
+-- import qualified GhcMod.Types as GM
 import qualified Language.Haskell.LSP.Core as Core
 import           Haskell.Ide.Engine.MonadTypes
 import           System.Directory
@@ -38,31 +40,29 @@ import           Test.Hspec.Runner
 import           Test.Hspec.Core.Formatters
 import           Text.Blaze.Renderer.String (renderMarkup)
 import           Text.Blaze.Internal
+import qualified Haskell.Ide.Engine.PluginApi as HIE (BiosOptions, defaultOptions)
+
+import HIE.Bios.Types
+
+testOptions :: HIE.BiosOptions
+testOptions = HIE.defaultOptions { cradleOptsVerbosity = Verbose }
 
 -- ---------------------------------------------------------------------
-
-testOptions :: GM.Options
-testOptions = GM.defaultOptions {
-    GM.optOutput     = GM.OutputOpts {
-      GM.ooptLogLevel       = GM.GmError
-      -- GM.ooptLogLevel       = GM.GmVomit
-    , GM.ooptStyle          = GM.PlainStyle
-    , GM.ooptLineSeparator  = GM.LineSeparator "\0"
-    , GM.ooptLinePrefix     = Nothing
-    }
-
-    }
 
 
 testCommand :: (ToJSON a, Typeable b, ToJSON b, Show b, Eq b)
             => IdePlugins -> IdeGhcM (IdeResult b) -> PluginId -> CommandName -> a -> IdeResult b -> IO ()
 testCommand testPlugins act plugin cmd arg res = do
+  flushStackEnvironment
   (newApiRes, oldApiRes) <- runIGM testPlugins $ do
     new <- act
     old <- makeRequest plugin cmd arg
     return (new, old)
   newApiRes `shouldBe` res
   fmap fromDynJSON oldApiRes `shouldBe` fmap Just res
+
+runSingle :: IdePlugins -> IdeGhcM (IdeResult b) -> IO (IdeResult b)
+runSingle testPlugins act = runIGM testPlugins  act
 
 runSingleReq :: ToJSON a
              => IdePlugins -> PluginId -> CommandName -> a -> IO (IdeResult DynamicJSON)
@@ -74,7 +74,7 @@ makeRequest plugin com arg = runPluginCommand plugin com (toJSON arg)
 runIGM :: IdePlugins -> IdeGhcM a -> IO a
 runIGM testPlugins f = do
   stateVar <- newTVarIO $ IdeState emptyModuleCache Map.empty Map.empty Nothing
-  runIdeGhcM testOptions testPlugins Nothing stateVar f
+  runIdeGhcM testPlugins Nothing stateVar f
 
 withFileLogging :: FilePath -> IO a -> IO a
 withFileLogging logFile f = do
@@ -93,20 +93,41 @@ withFileLogging logFile f = do
 
 -- ---------------------------------------------------------------------
 
-setupStackFiles :: IO ()
-setupStackFiles =
+-- If an executable @stack@ is present on the system then setup stack files,
+-- otherwise specify a direct cradle with -isrc
+setupBuildToolFiles :: IO ()
+setupBuildToolFiles = do
+  stack <- findExecutable "stack"
+  let s = case stack of
+        Nothing -> setupDirectFilesIn
+        Just _  -> setupStackFilesIn
   forM_ files $ \f -> do
-    resolver <- readResolver
-    writeFile (f ++ "stack.yaml") $ stackFileContents resolver
+    s f
+    -- Cleanup stack directory in case the presence of stack has changed since
+    -- the last run
     removePathForcibly (f ++ ".stack-work")
+
+setupStackFilesIn :: FilePath -> IO ()
+setupStackFilesIn f = do
+  resolver <- readResolver
+  writeFile (f ++ "stack.yaml") $ stackFileContents resolver
+  case f of
+    "./test/testdata/" -> writeFile (f ++ "hie.yaml") testdataHieYamlCradleStackContents
+    _ ->  writeFile (f ++ "hie.yaml") hieYamlCradleStackContents
+
+setupDirectFilesIn :: FilePath -> IO ()
+setupDirectFilesIn f =
+  writeFile (f ++ "hie.yaml") hieYamlCradleDirectContents
 
 -- ---------------------------------------------------------------------
 
 files :: [FilePath]
 files =
   [  "./test/testdata/"
-   , "./test/testdata/addPackageTest/cabal/"
-   , "./test/testdata/addPackageTest/hpack/"
+   , "./test/testdata/addPackageTest/cabal-exe/"
+   , "./test/testdata/addPackageTest/hpack-exe/"
+   , "./test/testdata/addPackageTest/cabal-lib/"
+   , "./test/testdata/addPackageTest/hpack-lib/"
    , "./test/testdata/addPragmas/"
    , "./test/testdata/badProjects/cabal/"
    , "./test/testdata/completion/"
@@ -133,7 +154,11 @@ ghcVersion = GHCPre84
 
 stackYaml :: FilePath
 stackYaml =
-#if (defined(MIN_VERSION_GLASGOW_HASKELL) && (MIN_VERSION_GLASGOW_HASKELL(8,6,3,0)))
+#if (defined(MIN_VERSION_GLASGOW_HASKELL) && (MIN_VERSION_GLASGOW_HASKELL(8,6,5,0)))
+  "stack-8.6.5.yaml"
+#elif (defined(MIN_VERSION_GLASGOW_HASKELL) && (MIN_VERSION_GLASGOW_HASKELL(8,6,4,0)))
+  "stack-8.6.4.yaml"
+#elif (defined(MIN_VERSION_GLASGOW_HASKELL) && (MIN_VERSION_GLASGOW_HASKELL(8,6,3,0)))
   "stack-8.6.3.yaml"
 #elif (defined(MIN_VERSION_GLASGOW_HASKELL) && (MIN_VERSION_GLASGOW_HASKELL(8,6,2,0)))
   "stack-8.6.2.yaml"
@@ -145,25 +170,18 @@ stackYaml =
   "stack-8.4.3.yaml"
 #elif (defined(MIN_VERSION_GLASGOW_HASKELL) && (MIN_VERSION_GLASGOW_HASKELL(8,4,2,0)))
   "stack-8.4.2.yaml"
-#elif (defined(MIN_VERSION_GLASGOW_HASKELL) && (MIN_VERSION_GLASGOW_HASKELL(8,2,2,0)))
-  "stack-8.2.2.yaml"
-#elif __GLASGOW_HASKELL__ >= 802
-  "stack-8.2.1.yaml"
-#else
-  "stack-8.0.2.yaml"
 #endif
 
 logFilePath :: String
-logFilePath = "functional-hie-" ++ stackYaml ++ ".log"
+logFilePath = "hie-" ++ stackYaml ++ ".log"
 
 -- | The command to execute the version of hie for the current compiler.
--- Make sure to disable the STACK_EXE and GHC_PACKAGE_PATH environment
--- variables or else it messes up -- ghc-mod.
--- We also need to unset STACK_EXE manually inside the tests if they are
--- run with `stack test`
+--
+-- Both @stack test@ and @cabal new-test@ setup the environment so @hie@ is
+-- on PATH. Cabal seems to respond to @build-tool-depends@ specifically while
+-- stack just puts all project executables on PATH.
 hieCommand :: String
-hieCommand = "stack exec --no-stack-exe --no-ghc-package-path --stack-yaml=" ++ stackYaml ++
-             " hie -- -d -l test-logs/" ++ logFilePath
+hieCommand = "hie --bios-verbose -d -l test-logs/" ++ logFilePath
 
 hieCommandVomit :: String
 hieCommandVomit = hieCommand ++ " --vomit"
@@ -191,9 +209,65 @@ readResolverFrom yamlPath = do
 
 -- ---------------------------------------------------------------------
 
+hieYamlCradleStackContents :: String
+hieYamlCradleStackContents = unlines
+  [ "# WARNING: THIS FILE IS AUTOGENERATED IN test/utils/TestUtils.hs. IT WILL BE OVERWRITTEN ON EVERY TEST RUN"
+  , "cradle:"
+  , "  stack:"
+  ]
+
+testdataHieYamlCradleStackContents :: String
+testdataHieYamlCradleStackContents = unlines
+  [ "# WARNING: THIS FILE IS AUTOGENERATED IN test/utils/TestUtils.hs. IT WILL BE OVERWRITTEN ON EVERY TEST RUN"
+  , "cradle:"
+  , "  stack:"
+  , "    - path: \"ApplyRefact.hs\""
+  , "      component: \"testdata:exe:applyrefact\""
+  , "    - path: \"ApplyRefact2.hs\""
+  , "      component: \"testdata:exe:applyrefact2\""
+  , "    - path: \"CodeActionRename.hs\""
+  , "      component: \"testdata:exe:codeactionrename\""
+  , "    - path: \"Hover.hs\""
+  , "      component: \"testdata:exe:hover\""
+  , "    - path: \"Symbols.hs\""
+  , "      component: \"testdata:exe:symbols\""
+  , "    - path: \"ApplyRefact2.hs\""
+  , "      component: \"testdata:exe:applyrefact2\""
+  , "    - path: \"HlintPragma.hs\""
+  , "      component: \"testdata:exe:hlintpragma\""
+  , "    - path: \"HaReCase.hs\""
+  , "      component: \"testdata:exe:harecase\""
+  , "    - path: \"HaReDemote.hs\""
+  , "      component: \"testdata:exe:haredemote\""
+  , "    - path: \"HaReMoveDef.hs\""
+  , "      component: \"testdata:exe:haremovedef\""
+  , "    - path: \"HaReRename.hs\""
+  , "      component: \"testdata:exe:harerename\""
+  , "    - path: \"HaReGA1.hs\""
+  , "      component: \"testdata:exe:haregenapplicative\""
+  , "    - path: \"FuncTest.hs\""
+  , "      component: \"testdata:exe:functests\""
+  , "    - path: \"liquid/Evens.hs\""
+  , "      component: \"testdata:exe:evens\""
+  , "    - path: \"FileWithWarning.hs\""
+  , "      component: \"testdata:exe:filewithwarning\""
+  , "    - path: ."
+  , "      component: \"testdata:exe:filewithwarning\""
+  ]
+
+
+hieYamlCradleDirectContents :: String
+hieYamlCradleDirectContents = unlines
+  [ "# WARNING: THIS FILE IS AUTOGENERATED IN test/utils/TestUtils.hs. IT WILL BE OVERWRITTEN ON EVERY TEST RUN"
+  , "cradle:"
+  , "  direct:"
+  , "    arguments:"
+  , "      - -isrc"
+  ]
+
 stackFileContents :: String -> String
 stackFileContents resolver = unlines
-  [ "# WARNING: THIS FILE IS AUTOGENERATED IN test/Main.hs. IT WILL BE OVERWRITTEN ON EVERY TEST RUN"
+  [ "# WARNING: THIS FILE IS AUTOGENERATED IN test/utils/TestUtils. IT WILL BE OVERWRITTEN ON EVERY TEST RUN"
   , "resolver: " ++ resolver
   , "packages:"
   , "- '.'"
@@ -253,7 +327,7 @@ xmlFormatter = silent {
         failure ! message (reasonAsString err) $ ""
 
 #if MIN_VERSION_hspec(2,5,0)
-    examplePending path _ reason = 
+    examplePending path _ reason =
 #else
     examplePending path reason =
 #endif
@@ -286,3 +360,14 @@ xmlFormatter = silent {
 
 -- ---------------------------------------------------------------------
 
+flushStackEnvironment :: IO ()
+flushStackEnvironment = do
+  -- We need to clear these environment variables to prevent
+  -- collisions with stack usages
+  -- See https://github.com/commercialhaskell/stack/issues/4875
+  unsetEnv "GHC_PACKAGE_PATH"
+  unsetEnv "GHC_ENVIRONMENT"
+  unsetEnv "HASKELL_PACKAGE_SANDBOX"
+  unsetEnv "HASKELL_PACKAGE_SANDBOXES"
+
+-- ---------------------------------------------------------------------

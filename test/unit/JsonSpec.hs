@@ -8,10 +8,11 @@ module JsonSpec where
 import           Haskell.Ide.Engine.MonadTypes
 
 import           Haskell.Ide.Engine.Plugin.ApplyRefact
-import           Haskell.Ide.Engine.Plugin.GhcMod
-import           Haskell.Ide.Engine.Plugin.HaRe
-import           Haskell.Ide.Engine.Plugin.HieExtras
+import           Haskell.Ide.Engine.Plugin.Generic
+-- import           Haskell.Ide.Engine.Plugin.HaRe
+-- import           Haskell.Ide.Engine.Support.HieExtras
 import           Haskell.Ide.Engine.Config
+import           Language.Haskell.LSP.Types
 
 import           Data.Aeson
 import           Test.Hspec
@@ -37,10 +38,10 @@ jsonSpec = do
   describe "General JSON instances round trip" $ do
   -- Plugin params
     prop "ApplyOneParams"    (propertyJsonRoundtrip :: ApplyOneParams -> Bool)
-    prop "InfoParams"        (propertyJsonRoundtrip :: InfoParams -> Bool)
-    prop "HarePoint"         (propertyJsonRoundtrip :: HarePoint -> Bool)
-    prop "HarePointWithText" (propertyJsonRoundtrip :: HarePointWithText -> Bool)
-    prop "HareRange"         (propertyJsonRoundtrip :: HareRange -> Bool)
+    prop "TypeParams"        (propertyJsonRoundtrip :: TypeParams -> Bool)
+    -- prop "HarePoint"         (propertyJsonRoundtrip :: HarePoint -> Bool)
+    -- prop "HarePointWithText" (propertyJsonRoundtrip :: HarePointWithText -> Bool)
+    -- prop "HareRange"         (propertyJsonRoundtrip :: HareRange -> Bool)
   -- Plugin Api types
     prop "IdeErrorCode"      (propertyJsonRoundtrip :: IdeErrorCode -> Bool)
     prop "IdeError"          (propertyJsonRoundtrip :: IdeError -> Bool)
@@ -62,17 +63,17 @@ smallList = resize 3 . listOf
 instance Arbitrary ApplyOneParams where
   arbitrary = AOP <$> arbitrary <*> arbitrary <*>  arbitrary
 
-instance Arbitrary InfoParams where
-  arbitrary = IP <$> arbitrary <*> arbitrary
+instance Arbitrary TypeParams where
+  arbitrary = TP <$> arbitrary <*> arbitrary <*> arbitrary
 
-instance Arbitrary HarePoint where
-  arbitrary = HP <$> arbitrary <*> arbitrary
+-- instance Arbitrary HarePoint where
+--   arbitrary = HP <$> arbitrary <*> arbitrary
 
-instance Arbitrary HarePointWithText where
-  arbitrary = HPT <$> arbitrary <*> arbitrary <*> arbitrary
+-- instance Arbitrary HarePointWithText where
+--   arbitrary = HPT <$> arbitrary <*> arbitrary <*> arbitrary
 
-instance Arbitrary HareRange where
-  arbitrary = HR <$> arbitrary <*> arbitrary <*> arbitrary
+-- instance Arbitrary HareRange where
+--   arbitrary = HR <$> arbitrary <*> arbitrary <*> arbitrary
 
 instance Arbitrary Uri where
   arbitrary = filePathToUri <$> arbitrary
@@ -87,7 +88,10 @@ instance Arbitrary TextDocumentIdentifier where
   arbitrary = TextDocumentIdentifier <$> arbitrary
 
 instance Arbitrary TextDocumentPositionParams where
-  arbitrary = TextDocumentPositionParams <$> arbitrary <*> arbitrary
+  arbitrary = TextDocumentPositionParams <$> arbitrary <*> arbitrary <*> arbitrary
+
+instance Arbitrary ProgressToken where
+  arbitrary = oneof [ProgressTextToken <$> arbitrary, ProgressNumericToken <$> arbitrary]
 
 instance Arbitrary IdeErrorCode where
   arbitrary = arbitraryBoundedEnum
@@ -102,4 +106,13 @@ instance Arbitrary Position where
     return $ Position l c
 
 instance Arbitrary Config where
-  arbitrary = Config <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+  arbitrary =
+    Config
+      <$> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary

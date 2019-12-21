@@ -5,7 +5,13 @@
 module Haskell.Ide.Engine.Plugin.ApplyRefact where
 
 import           Control.Arrow
-import           Control.Lens hiding (List)
+import           Control.Exception              ( IOException
+                                                , ErrorCall
+                                                , Handler(..)
+                                                , catches
+                                                , try
+                                                )
+import           Control.Lens            hiding ( List )
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Except
 import           Data.Aeson                        hiding (Error)
@@ -13,14 +19,13 @@ import           Data.Maybe
 import           Data.Monoid                       ((<>))
 import qualified Data.Text                         as T
 import           GHC.Generics
-import qualified GhcMod.Utils                      as GM
 import           Haskell.Ide.Engine.MonadFunctions
 import           Haskell.Ide.Engine.MonadTypes
 import           Haskell.Ide.Engine.PluginUtils
 import           Language.Haskell.Exts.SrcLoc
 import           Language.Haskell.Exts.Parser
 import           Language.Haskell.Exts.Extension
-import           Language.Haskell.HLint3           as Hlint
+import           Language.Haskell.HLint4           as Hlint
 import qualified Language.Haskell.LSP.Types        as LSP
 import qualified Language.Haskell.LSP.Types.Lens   as LSP
 import           Refact.Apply
@@ -47,6 +52,7 @@ applyRefactDescriptor plId = PluginDescriptor
   , pluginDiagnosticProvider = Nothing
   , pluginHoverProvider = Nothing
   , pluginSymbolProvider = Nothing
+  , pluginFormattingProvider = Nothing
   }
 
 -- ---------------------------------------------------------------------
@@ -69,14 +75,18 @@ applyOneCmd = CmdSync $ \(AOP uri pos title) -> do
 
 applyOneCmd' :: Uri -> OneHint -> IdeGhcM (IdeResult WorkspaceEdit)
 applyOneCmd' uri oneHint = pluginGetFile "applyOne: " uri $ \fp -> do
-      revMapp <- GM.mkRevRedirMapFunc
-      res <- GM.withMappedFile fp $ \file' -> liftToGhc $ applyHint file' (Just oneHint) revMapp
-      logm $ "applyOneCmd:file=" ++ show fp
-      logm $ "applyOneCmd:res=" ++ show res
-      case res of
-        Left err -> return $ IdeResultFail (IdeError PluginError
-                      (T.pack $ "applyOne: " ++ show err) Null)
-        Right fs -> return (IdeResultOk fs)
+  revMapp <- reverseFileMap
+  let defaultResult = do
+        debugm "applyOne: no access to the persisted file."
+        return $ IdeResultOk mempty
+  withMappedFile fp defaultResult $ \file' -> do
+    res <- liftToGhc $ applyHint file' (Just oneHint) revMapp
+    logm $ "applyOneCmd:file=" ++ show fp
+    logm $ "applyOneCmd:res=" ++ show res
+    case res of
+      Left err -> return $ IdeResultFail
+        (IdeError PluginError (T.pack $ "applyOne: " ++ show err) Null)
+      Right fs -> return (IdeResultOk fs)
 
 
 -- ---------------------------------------------------------------------
@@ -87,13 +97,17 @@ applyAllCmd = CmdSync $ \uri -> do
 
 applyAllCmd' :: Uri -> IdeGhcM (IdeResult WorkspaceEdit)
 applyAllCmd' uri = pluginGetFile "applyAll: " uri $ \fp -> do
-      revMapp <- GM.mkRevRedirMapFunc
-      res <- GM.withMappedFile fp $ \file' -> liftToGhc $ applyHint file' Nothing revMapp
-      logm $ "applyAllCmd:res=" ++ show res
-      case res of
-        Left err -> return $ IdeResultFail (IdeError PluginError
-                      (T.pack $ "applyAll: " ++ show err) Null)
-        Right fs -> return (IdeResultOk fs)
+  let defaultResult = do
+        debugm "applyAll: no access to the persisted file."
+        return $ IdeResultOk mempty
+  revMapp <- reverseFileMap
+  withMappedFile fp defaultResult $ \file' -> do
+    res <- liftToGhc $ applyHint file' Nothing revMapp
+    logm $ "applyAllCmd:res=" ++ show res
+    case res of
+      Left err -> return $ IdeResultFail (IdeError PluginError
+                    (T.pack $ "applyAll: " ++ show err) Null)
+      Right fs -> return (IdeResultOk fs)
 
 -- ---------------------------------------------------------------------
 
@@ -104,14 +118,30 @@ lintCmd = CmdSync $ \uri -> do
 -- AZ:TODO: Why is this in IdeGhcM?
 lintCmd' :: Uri -> IdeGhcM (IdeResult PublishDiagnosticsParams)
 lintCmd' uri = pluginGetFile "lintCmd: " uri $ \fp -> do
-      res <- GM.withMappedFile fp $ \file' -> liftIO $ runExceptT $ runLintCmd file' []
-      case res of
+  let
+    defaultResult = do
+      debugm "lintCmd: no access to the persisted file."
+      return
+        $ IdeResultOk (PublishDiagnosticsParams (filePathToUri fp) $ List [])
+  withMappedFile fp defaultResult $ \file' -> do
+    eitherErrorResult <- liftIO
+      (try $ runExceptT $ runLintCmd file' [] :: IO
+          (Either IOException (Either [Diagnostic] [Idea]))
+      )
+    case eitherErrorResult of
+      Left err -> return $ IdeResultFail
+        (IdeError PluginError (T.pack $ "lintCmd: " ++ show err) Null)
+      Right res -> case res of
         Left diags ->
-          return (IdeResultOk (PublishDiagnosticsParams (filePathToUri fp) $ List diags))
+          return
+            (IdeResultOk
+              (PublishDiagnosticsParams (filePathToUri fp) $ List diags)
+            )
         Right fs ->
-          return $ IdeResultOk $
-            PublishDiagnosticsParams (filePathToUri fp)
-              $ List (map hintToDiagnostic $ stripIgnores fs)
+          return
+            $ IdeResultOk
+            $ PublishDiagnosticsParams (filePathToUri fp)
+            $ List (map hintToDiagnostic $ stripIgnores fs)
 
 runLintCmd :: FilePath -> [String] -> ExceptT [Diagnostic] IO [Idea]
 runLintCmd fp args = do
@@ -125,7 +155,7 @@ parseErrorToDiagnostic (Hlint.ParseError l msg contents) =
   [Diagnostic
       { _range    = srcLoc2Range l
       , _severity = Just DsInfo -- Not displayed
-      , _code     = Just "parser"
+      , _code     = Just (LSP.StringValue "parser")
       , _source   = Just "hlint"
       , _message  = T.unlines [T.pack msg,T.pack contents]
       , _relatedInformation = Nothing
@@ -169,7 +199,7 @@ hintToDiagnostic idea
   = Diagnostic
       { _range    = ss2Range (ideaSpan idea)
       , _severity = Just (hintSeverityMap $ ideaSeverity idea)
-      , _code     = Just (T.pack $ ideaHint idea)
+      , _code     = Just (LSP.StringValue $ T.pack $ ideaHint idea)
       , _source   = Just "hlint"
       , _message  = idea2Message idea
       , _relatedInformation = Nothing
@@ -236,10 +266,17 @@ applyHint fp mhint fileMap = do
     -- If we provide "applyRefactorings" with "Just (1,13)" then
     -- the "Redundant bracket" hint will never be executed
     -- because SrcSpan (1,20,??,??) doesn't contain position (1,13).
-    appliedFile <- liftIO $ applyRefactorings Nothing commands fp
-    diff <- ExceptT $ Right <$> makeDiffResult fp (T.pack appliedFile) fileMap
-    liftIO $ logm $ "applyHint:diff=" ++ show diff
-    return diff
+    res <- liftIO $ (Right <$> applyRefactorings Nothing commands fp) `catches`
+              [ Handler $ \e -> return (Left (show (e :: IOException)))
+              , Handler $ \e -> return (Left (show (e :: ErrorCall)))
+              ]
+    case res of
+      Right appliedFile -> do
+        diff <- ExceptT $ Right <$> makeDiffResult fp (T.pack appliedFile) fileMap
+        liftIO $ logm $ "applyHint:diff=" ++ show diff
+        return diff
+      Left err ->
+        throwE (show err)
 
 -- | Gets HLint ideas for
 getIdeas :: MonadIO m => FilePath -> Maybe OneHint -> ExceptT String m [Idea]
@@ -285,7 +322,7 @@ codeActionProvider plId docId _ context = IdeResultOk <$> hlintActions
     hlintActions = catMaybes <$> mapM mkHlintAction (filter validCommand diags)
 
     -- |Some hints do not have an associated refactoring
-    validCommand (LSP.Diagnostic _ _ (Just code) (Just "hlint") _ _) =
+    validCommand (LSP.Diagnostic _ _ (Just (LSP.StringValue code)) (Just "hlint") _ _) =
       case code of
         "Eta reduce" -> False
         _            -> True
@@ -294,7 +331,7 @@ codeActionProvider plId docId _ context = IdeResultOk <$> hlintActions
     LSP.List diags = context ^. LSP.diagnostics
 
     mkHlintAction :: LSP.Diagnostic -> IdeM (Maybe LSP.CodeAction)
-    mkHlintAction diag@(LSP.Diagnostic (LSP.Range start _) _s (Just code) (Just "hlint") m _) =
+    mkHlintAction diag@(LSP.Diagnostic (LSP.Range start _) _s (Just (LSP.StringValue code)) (Just "hlint") m _) =
       Just . codeAction <$> mkLspCommand plId "applyOne" title (Just args)
      where
        codeAction cmd = LSP.CodeAction title (Just LSP.CodeActionRefactor) (Just (LSP.List [diag])) Nothing (Just cmd)

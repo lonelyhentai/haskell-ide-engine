@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP               #-}
 {-# LANGUAGE DeriveAnyClass    #-}
 {-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE DuplicateRecordFields #-}
@@ -9,9 +8,6 @@ import           Control.Lens
 import           Control.Monad.IO.Class
 import           Data.Aeson
 import qualified Data.HashMap.Strict           as H
-#if __GLASGOW_HASKELL__ < 804
-import           Data.Monoid
-#endif
 import qualified Data.Map                      as Map
 import qualified Data.Set                      as S
 import qualified Data.Text                     as T
@@ -38,6 +34,7 @@ example2Descriptor plId = PluginDescriptor
       = Just (DiagnosticProvider (S.singleton DiagnosticOnSave) (DiagnosticProviderSync diagnosticProvider))
   , pluginHoverProvider = Nothing
   , pluginSymbolProvider = Nothing
+  , pluginFormattingProvider = Nothing
   }
 
 -- ---------------------------------------------------------------------

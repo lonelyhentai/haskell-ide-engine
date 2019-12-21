@@ -1,9 +1,11 @@
 # Haskell IDE Engine (HIE)
-<img src="https://github.com/haskell/haskell-ide-engine/raw/master/logos/HIE_logo_512.png" width="256" style="margin:25px;" align="right"/>
+
+**This is a fork to fix loading hanging in using `vscode-hie-server` and `haskell-ide-engine`.**
 
 [![License BSD3][badge-license]][license]
 [![CircleCI][badge-circleci]][circleci]
 [![AppVeyor][badge-appveyor]][appveyor]
+[![Open Source Helpers](https://www.codetriage.com/haskell/haskell-ide-engine/badges/users.svg)](https://www.codetriage.com/haskell/haskell-ide-engine)
 
 [badge-license]: https://img.shields.io/badge/license-BSD3-green.svg?dummy
 [license]: https://github.com/haskell/haskell-ide-engine/blob/master/LICENSE
@@ -18,29 +20,58 @@ This project aims to be __the universal interface__ to __a growing number of Has
 __We are currently focusing on using the [Language Server Protocol](https://github.com/Microsoft/language-server-protocol/blob/master/protocol.md) as the interface via which
 we talk to clients.__
 
-- [Haskell IDE Engine](#haskell-ide-engine)
-    - [Features](#features)
-    - [Installation](#installation)
-        - [stack on Linux](#installation-with-stack-on-linux)
-        - [stack on Windows](#installation-with-stack-on-windows)
-        - [macOS](#installation-on-macos)
-        - [Nix](#installation-with-nix)
-        - [ArchLinux](#installation-on-archlinux)
-        - [Shake](#installation-with-shake)
-    - [Configuration](#configuration)
-    - [Editor Integration](#editor-integration)
-        - Using HIE with [VS Code](#using-hie-with-vs-code), [Sublime Text](#using-hie-with-sublime-text), [Vim/Neovim](#using-hie-with-vim-or-neovim), [Atom](#using-hie-with-atom), [Oni](#using-hie-with-oni), [Emacs](#using-hie-with-emacs), [Spacemacs](#using-hie-with-spacemacs) or [Spacemacs+Nix](#using-hie-with-spacemacs-on-nix-based-projects)
-    - [Docs on hover/completion](#docs-on-hovercompletion)
-    - [Contributing](#contributing)
-        - [Planned Features](#planned-features)
-        - [This is *not* yet another `ghc-mod` or `ide-backend` project](#this-is-not-yet-another-ghc-mod-or-ide-backend-project)
-        - [It's time to join the project!](#its-time-to-join-the-project)
+- [Haskell IDE Engine (HIE)](#haskell-ide-engine-hie)
+  - [Features](#features)
+  - [Installation](#installation)
+    - [Installation with Nix](#installation-with-nix)
+    - [Installation on ArchLinux](#installation-on-archlinux)
+    - [Installation from source](#installation-from-source)
+      - [Common pre-requirements](#common-pre-requirements)
+      - [Linux-specific pre-requirements](#linux-specific-pre-requirements)
+      - [Windows-specific pre-requirements](#windows-specific-pre-requirements)
+      - [Download the source code](#download-the-source-code)
+      - [Building](#building)
+        - [Install via cabal](#install-via-cabal)
+        - [Install cabal using stack](#install-cabal-using-stack)
+        - [Install specific GHC Version](#install-specific-ghc-version)
+        - [Multiple versions of HIE (optional)](#multiple-versions-of-hie-optional)
+  - [Configuration](#configuration)
+  - [Project Configuration](#project-configuration)
+  - [Editor Integration](#editor-integration)
+    - [Using HIE with VS Code](#using-hie-with-vs-code)
+      - [Using VS Code with Nix](#using-vs-code-with-nix)
+    - [Using HIE with Sublime Text](#using-hie-with-sublime-text)
+    - [Using HIE with Vim or Neovim](#using-hie-with-vim-or-neovim)
+      - [Coc](#coc)
+      - [LanguageClient-neovim](#languageclient-neovim)
+        - [vim-plug](#vim-plug)
+        - [Clone the LanguageClient-neovim repo](#clone-the-languageclient-neovim-repo)
+        - [Sample `~/.vimrc`](#sample-vimrc)
+    - [Using HIE with Atom](#using-hie-with-atom)
+    - [Using HIE with Emacs](#using-hie-with-emacs)
+    - [Using HIE with Spacemacs](#using-hie-with-spacemacs)
+    - [Using HIE with Oni](#using-hie-with-oni)
+  - [Docs on hover/completion](#docs-on-hovercompletion)
+  - [Contributing](#contributing)
+    - [Planned Features](#planned-features)
+    - [It's time to join the project!](#its-time-to-join-the-project)
+  - [Documentation](#documentation)
     - [Architecture](#architecture)
-        - [1. BIOS layer](#1-bios-layer)
-        - [2. Plugin layer](#2-plugin-layer)
-        - [3. IDE interfacing layer](#3-ide-interfacing-layer)
-    - [Documentation](#documentation)
-    - [Troubleshooting](#troubleshooting)
+  - [Troubleshooting](#troubleshooting)
+    - [Emacs](#emacs)
+      - [Parse errors, file state going out of sync](#parse-errors-file-state-going-out-of-sync)
+      - [`emacs-direnv` loads environment too late](#emacs-direnv-loads-environment-too-late)
+    - [DYLD on macOS](#dyld-on-macos)
+    - [macOS: Got error while installing GHC 8.6.1 or 8.6.2 - dyld: Library not loaded: /usr/local/opt/gmp/lib/libgmp.10.dylib](#macos-got-error-while-installing-ghc-861-or-862---dyld-library-not-loaded-usrlocaloptgmpliblibgmp10dylib)
+    - [macOS: Got error while processing diagnostics: unable to load package `integer-gmp-1.0.2.0`](#macos-got-error-while-processing-diagnostics-unable-to-load-package-integer-gmp-1020)
+    - [cannot satisfy -package-id \<package\>](#cannot-satisfy--package-id-package)
+      - [Is \<package\> base-x?](#is-package-base-x)
+      - [Is there a hash (#) after \<package\>?](#is-there-a-hash--after-package)
+      - [Otherwise](#otherwise)
+    - [Nix: cabal-helper, No such file or directory](#nix-cabal-helper-no-such-file-or-directory)
+    - [Liquid Haskell](#liquid-haskell)
+    - [Profiling `haskell-ide-engine`.](#profiling-haskell-ide-engine)
+      - [Using `ghc-events-analyze`](#using-ghc-events-analyze)
 
 ## Features
 
@@ -79,7 +110,7 @@ we talk to clients.__
 
    ![Formatting](https://i.imgur.com/cqZZ8HC.gif)
 
- - Renaming via HaRe
+ - Renaming via HaRe (NOTE: HaRe is temporarily disabled)
 
    ![Renaming](https://i.imgur.com/z03G2a5.gif)
 
@@ -101,17 +132,17 @@ we talk to clients.__
 
 ### Installation with Nix
 
-Follow the instructions at https://github.com/domenkozar/hie-nix
+Follow the instructions at https://github.com/Infinisil/all-hies
 
 
 ### Installation on ArchLinux
 
-An [haskell-ide-engine-git](https://aur.archlinux.org/packages/haskell-ide-engine-git/) package is available on the AUR.
+An [haskell-ide-engine](https://aur.archlinux.org/packages/haskell-ide-engine/) package is available on the AUR.
 
 Using [Aura](https://github.com/aurapm/aura):
 
 ```
-# aura -A haskell-ide-engine-git
+# aura -A haskell-ide-engine
 ```
 
 
@@ -121,11 +152,21 @@ To install HIE, you need stack version >= 1.7.1.
 
 HIE builds from source code, so there's a couple of extra steps.
 
-#### Linux pre-requirements
+#### Common pre-requirements
+
+* `stack` must be in your PATH
+* `git` must be in your PATH
+* Stack local bin directory must be in your PATH. Get it with `stack path --local-bin`
+
+Tip: you can quickly check if some command is in your path by running the command.
+If you receive some meaningful output instead of "command not found"-like message
+then it means you have the command in PATH.
+
+#### Linux-specific pre-requirements
 
 On Linux you will need install a couple of extra libraries (for Unicode ([ICU](http://site.icu-project.org/)) and [NCURSES](https://www.gnu.org/software/ncurses/)):
 
-**Debian/Ubuntu**: 
+**Debian/Ubuntu**:
 
 ```bash
 sudo apt install libicu-dev libtinfo-dev libgmp-dev
@@ -133,19 +174,17 @@ sudo apt install libicu-dev libtinfo-dev libgmp-dev
 **Fedora**:
 
 ```bash
-sudo dnf install libicu-devel ncurses-devel
+sudo dnf install libicu-devel ncurses-devel # also zlib-devel if not already installed
 ```
-**ArchLinux**: see [below](#installation-on-archlinux).
 
-#### Windows: long paths (optional)
+#### Windows-specific pre-requirements
 
-In order to avoid problems with long paths on Windows you can do the following:
+In order to avoid problems with long paths on Windows you can do either one of the following:
 
-1. Edit the group policy: set "Enable Win32 long paths" to "Enabled" (Works
-   only for Windows 10).
+1. Clone the `haskell-ide-engine` to a short path, for example the root of your logical drive (e.g. to
+   `C:\hie`). If this doesn't work or you want to use a longer path, try the second option.
 
-2. Clone the `haskell-ide-engine` to the root of your logical drive (e.g. to
-   `C:\hie`)
+2. If the `Local Group Policy Editor` is available on your system, go to: `Local Computer Policy -> Computer Configuration -> Administrative Templates -> System -> Filesystem` set `Enable Win32 long paths` to `Enabled`. If you don't have the policy editor you can use regedit by using the following instructions [here](https://docs.microsoft.com/en-us/windows/win32/fileio/naming-a-file#enable-long-paths-in-windows-10-version-1607-and-later). You also need to configure git to allow longer paths by using unicode paths. To set this for all your git repositories use `git config --system core.longpaths true` (you probably need an administrative shell for this) or for just this one repository use `git config core.longpaths true`.
 
 #### Download the source code
 
@@ -154,110 +193,11 @@ git clone https://github.com/haskell/haskell-ide-engine --recurse-submodules
 cd haskell-ide-engine
 ```
 
-#### Choose your GHC version
+#### Building
 
-The GHC version you are going to install HIE for depends on which version of GHC you are using for your project. If you don't have a current project there are two potential options:
-
-1. The Nightly GHC version ([currently](https://www.stackage.org/nightly) 8.6.3)
-2. The LTS GHC version (which is [currently](https://www.stackage.org/lts) 8.4.4)
-
-By default in a stack project you will get the LTS version.
-
-You can check which version of ghc you are using in your project by running the following at the root of your project:
-
-```bash
-stack ghc -- --version
-```
-
-You can install an specific version or [all available GHC versions](#install-all-available-ghc-versions).
-
-#### Install a specific GHC version 8.2.1 - 8.6.3
-
-We will use the `make` tools here to wrap `stack install`. The preferred installation mechanism is via `make`, as it makes sure the repo is synced, installs the required cabal libraries if missing, and makes copies of the executables with suffixes to be able to tell them apart.
-
-Install **Nightly** (and hoogle docs):
-
-```bash
-make hie-8.6.3
-make build-doc-8.6.3
-```
-
-Install **LTS** (and hoogle docs):
-
-```bash
-make hie-8.4.4
-make build-doc-8.4.4
-```
-
-This step can take more than 30 minutes, so grab a coffee and please be patient!
-
-The available versions depend on the `stack-*.yaml` config files in the `haskell-ide-engine` directory.
-
-#### For GHC 8.0.2
-
-This is no longer supported on the HIE `master` branch, so you must switch to the `hie-0.1.0.0` branch:
-
-```bash
-git checkout hie-0.1.0.0
-git submodule update --init
-```
-Then you can run `stack install`:
-
-```bash
-stack --stack-yaml=stack-8.0.2.yaml install
-```
-
-#### Install *all* available GHC versions
-
-This is the simplest approach as it will install all GHC versions to match against any project versions you might have.
-
-*Warning*: Requires 20+ GB of space and potentially more than 2 hours to install, so please be patient!
-
-This will:
-
-* install all supported GHC versions (8.2.1 - 8.6.3)
-* name them as expected by the VS Code plugin
-* build local hoogle docs for each version
-
-On non-Windows platforms use the command:
-
-```bash
-make build-all
-```
-
-On Windows use:
-**PowerShell:**
-
-```
-./build-all.ps1
-```
-
-or
-
-**cmd.exe:**
-
-```
-powershell -ExecutionPolicy RemoteSigned -c ./build-all.ps1
-```
-
-
-Then add
-
-```json
-"languageServerHaskell.useCustomHieWrapper": true,
-"languageServerHaskell.useCustomHieWrapperPath": "hie-wrapper",
-```
-
-to VS Code user settings.
-
-
-### Installation with Shake
-
-Experimental build script for HIE. Feedback is appreciated.
 Uses the [shake](https://shakebuild.com/) build system for predictable builds.
-The build script is platform independent and the only prerequisites are that `git` and `stack` are installed. The dependency on `make` and other linux specific commands has been dropped.
 
-Note, on first invocation of the build script, a GHC is being installed for execution. However, if you build HIE for every GHC, no GHC is downloaded twice.
+Note, on first invocation of the build script, a GHC is being installed for execution.
 The GHC used for the `install.hs` can be adjusted in `shake.yaml` by using a different resolver.
 
 Available commands can be seen with:
@@ -266,46 +206,86 @@ Available commands can be seen with:
 stack ./install.hs help
 ```
 
-Remember, this will take time to download a Stackage-LTS and an appropriate GHC. However, afterwards all commands should work as expected. 
+Remember, this will take time to download a Stackage-LTS and an appropriate GHC. However, afterwards all commands should work as expected.
 
-#### Install specific GHC Version with Shake
+##### Install via cabal
 
-Install **Nightly** (and hoogle docs):
-
-```bash
-stack ./install.hs hie-8.6.3
-stack ./install.hs build-doc-hie-8.6.3
-```
-
-Install **LTS** (and hoogle docs):
+The install-script can be invoked via `cabal` instead of `stack` with the command
 
 ```bash
-stack ./install.hs hie-8.4.4
-stack ./install.hs build-doc-hie-8.4.4
+cabal v2-run ./install.hs --project-file install/shake.project <target>
 ```
 
-#### Install *all* available GHC versions with Shake
+Running the script with cabal on windows requires a cabal version greater or equal to `3.0.0.0`.
 
-*Warning*: Requires 20+ GB of space and potentially more than 2 hours to install, so please be patient!
+Unfortunately, it is still required to have `stack` installed so that the install-script can locate the `local-bin` directory (on Linux `~/.local/bin`) and copy the `hie` binaries to `hie-x.y.z`, which is required for the `hie-wrapper` to function as expected. There are plans to remove this requirement and let users build hie only with one build tool or another.
 
-This will:
+For brevity, only the `stack`-based commands are presented in the following sections.
 
-* install all supported GHC versions (8.2.1 - 8.6.3)
-* name them as expected by the VS Code plugin
-* build local hoogle docs for each version
+##### Install cabal using stack
+
+Although you can use hie for stack based projects (those which have a `stack.yaml` in the project base directory) without having cabal installed, you will need it for cabal based projects (with only a `<projectName>.cabal` file or a `cabal.project` one in the project base directory).
+
+You can install an appropriate cabal version using stack by running:
 
 ```bash
-stack ./install.hs build-all
+stack ./install.hs stack-install-cabal
 ```
 
-Then add
+##### Install specific GHC Version
+
+Install hie for the latest available and supported GHC version (and hoogle docs):
+
+```bash
+stack ./install.hs build
+```
+
+Install hie for a specific GHC version (and hoogle docs):
+
+```bash
+stack ./install.hs hie-8.6.5
+stack ./install.hs build-data
+```
+
+The Haskell IDE Engine can also be built with `cabal v2-build` instead of `stack build`.
+This has the advantage that you can decide how the GHC versions have been installed.
+To see what GHC versions are available, the command `stack install.hs cabal-ghcs` can be used.
+It will list all GHC versions that are on the path and their respective installation directory.
+If you think, this list is incomplete, you can try to modify the PATH variable, such that the executables can be found.
+Note, that the targets `cabal-build` and `cabal-build-data` depend on the found GHC versions.
+They install Haskell IDE Engine only for the found GHC versions.
+
+An example output is:
+
+```bash
+> stack install.hs cabal-ghcs
+******************************************************************
+Found the following GHC paths:
+ghc-8.4.4: /opt/bin/ghc-8.4.4
+ghc-8.6.2: /opt/bin/ghc-8.6.2
+
+******************************************************************
+```
+
+If your desired ghc has been found, you use it to install Haskell IDE Engine.
+
+```bash
+stack install.hs cabal-hie-8.4.4
+stack install.hs cabal-build-data
+```
+
+In general, targets that use `cabal` instead of `stack` are prefixed with `cabal-*` and are identical to their counterpart, except they do not install a GHC if it is missing but fail.
+
+##### Multiple versions of HIE (optional)
+
+If you installed multiple versions of HIE then you will need to use a wrapper script.
+Wrapper script will analyze your project, find suitable version of HIE and launch it.
+Enable it by editing VS Code settings like that:
 
 ```json
 "languageServerHaskell.useCustomHieWrapper": true,
 "languageServerHaskell.useCustomHieWrapperPath": "hie-wrapper",
 ```
-
-to VS Code user settings.
 
 ## Configuration
 There are some settings that can be configured via a `settings.json` file:
@@ -315,12 +295,166 @@ There are some settings that can be configured via a `settings.json` file:
     "languageServerHaskell": {
         "hlintOn": Boolean,
         "maxNumberOfProblems": Number
+        "diagnosticsDebounceDuration" : Number
+        "liquidOn"                    : Bool (default False)
+        "completionSnippetsOn"        : Bool (default True)
+        "formatOnImportOn"            : Bool (default True)
+        "formattingProvider"          : String (default "brittany",
+                                                alternate "floskell")
     }
 }
 ```
 
 - VS Code: These settings will show up in the settings window
 - LanguageClient-neovim: Create this file in `$projectdir/.vim/settings.json` or set `g:LanguageClient_settingsPath`
+
+## Project Configuration
+
+**For a full explanation of possible configurations, refer to [hie-bios/README](https://github.com/mpickering/hie-bios/blob/master/README.md).**
+
+HIE will attempt to automatically detect your project configuration and set up
+the environment for GHC. 
+
+| `cabal.project` | `stack.yaml` | `*.cabal` | Project selected |
+|-----------------|--------------|-----------|------------------|
+| ✅              | -            | -         | Cabal v2         |
+| ❌              | ✅           | -         | Stack            |
+| ❌              | ❌           | ✅        | Cabal (v2 or v1) |
+| ❌              | ❌           | ❌        | None             |
+
+However, you can also place a `hie.yaml` file in the root of the workspace to
+**explicitly** describe how to setup the environment. For example, to state that
+you want to use `stack` then the configuration file would look like:
+
+```yaml
+cradle:
+  stack:
+    component: "haskell-ide-engine:lib"
+```
+
+If you use `cabal` then you probably need to specify which component you want
+to use.
+
+```yaml
+cradle:
+  cabal:
+    component: "lib:haskell-ide-engine"
+```
+
+If you have a project with multiple components, you can use a cabal-multi
+cradle:
+
+```yaml
+cradle:
+  cabal:
+    - path: "./test/dispatcher/"
+      component: "test:dispatcher-test"
+    - path: "./test/functional/"
+      component: "test:func-test"
+    - path: "./test/unit/"
+      component: "test:unit-test"
+    - path: "./hie-plugin-api/"
+      component: "lib:hie-plugin-api"
+    - path: "./app/MainHie.hs"
+      component: "exe:hie"
+    - path: "./app/HieWrapper.hs"
+      component: "exe:hie-wrapper"
+    - path: "./"
+      component: "lib:haskell-ide-engine"
+```
+
+Equivalently, you can use stack:
+
+```yaml
+cradle:
+  stack:
+    - path: "./test/dispatcher/"
+      component: "haskell-ide-engine:test:dispatcher-test"
+    - path: "./test/functional/"
+      component: "haskell-ide-engine:test:func-test"
+    - path: "./test/unit/"
+      component: "haskell-ide-engine:test:unit-test"
+    - path: "./hie-plugin-api/"
+      component: "hie-plugin-api:lib"
+    - path: "./app/MainHie.hs"
+      component: "haskell-ide-engine:exe:hie"
+    - path: "./app/HieWrapper.hs"
+      component: "haskell-ide-engine:exe:hie-wrapper"
+    - path: "./"
+      component: "haskell-ide-engine:lib"
+```
+
+Or you can explicitly state the program which should be used to collect
+the options by supplying the path to the program. It is interpreted
+relative to the current working directory if it is not an absolute path.
+
+```yaml
+cradle:
+  bios:
+    program: ".hie-bios"
+```
+
+The complete configuration is a subset of
+
+```yaml
+cradle:
+  cabal:
+    component: "optional component name"
+  stack:
+    component: "optional component name"
+  bios:
+    program: "program to run"
+    dependency-program: "optional program to run"
+  direct:
+    arguments: ["list","of","ghc","arguments"]
+  default:
+  none:
+
+dependencies:
+  - someDep
+```
+
+There is also support for multiple cradles in a single `hie.yaml`. An example configuration for Haskell IDE Engine:
+
+```yaml
+cradle:
+  multi:
+    - path: ./test/dispatcher/
+      config:
+        cradle:
+          cabal:
+            component: "test:dispatcher-test"
+    - path: ./test/functional/
+      config:
+        cradle:
+          cabal:
+            component: "test:func-test"
+    - path: ./test/unit/
+      config:
+        cradle:
+          cabal:
+            component: "test:unit-test"
+    - path: ./hie-plugin-api/
+      config:
+        cradle:
+          cabal:
+            component: "lib:hie-plugin-api"
+    - path: ./app/MainHie.hs
+      config:
+        cradle:
+          cabal:
+            component: "exe:hie"
+    - path: ./app/HieWrapper.hs
+      config:
+        cradle:
+          cabal:
+            component: "exe:hie-wrapper"
+    - path: ./
+      config:
+        cradle:
+          cabal:
+            component: "lib:haskell-ide-engine"
+```
 
 ## Editor Integration
 
@@ -353,7 +487,7 @@ in
   packageOverrides = pkgs: rec {
 
     vscode = pkgs.vscode.overrideDerivation (old: {
-      postFixup = old.postFixup + ''
+      postFixup = ''
         wrapProgram $out/bin/code --prefix PATH : ${lib.makeBinPath [hie]}
       '';
     });
@@ -383,7 +517,7 @@ in
 }
 ```
 
-Now open a haskell project with Sublime Text. You should have these features available to you:
+Now open a Haskell project with Sublime Text. You should have these features available to you:
 
 1. Errors are underlined in red
 2. LSP: Show Diagnostics will show a list of hints and errors
@@ -391,11 +525,42 @@ Now open a haskell project with Sublime Text. You should have these features ava
 
 ### Using HIE with Vim or Neovim
 
-As above, make sure HIE is installed. These instructions are for using the [LanguageClient-neovim](https://github.com/autozimu/LanguageClient-neovim) client.
+As above, make sure HIE is installed.
+Then you can use [Coc](https://github.com/neoclide/coc.nvim), [LanguageClient-neovim](https://github.com/autozimu/LanguageClient-neovim)
+or any other vim Langauge server protocol client.
+Coc is recommend since it is the only complete LSP implementation for Vim and Neovim and offers snippets and floating documentation out of the box.
 
-#### vim-plug
-If you use [vim-plug](https://github.com/junegunn/vim-plug), then you can do this by e.g.
-including the following line in the Plug section of your `init.vim`:
+#### Coc
+Follow Coc's [installation instructions](https://github.com/neoclide/coc.nvim),
+Then issue `:CocConfig` and add the following to your Coc config file.
+
+```jsonc
+"languageserver": {
+  "haskell": {
+    "command": "hie-wrapper",
+    "rootPatterns": [
+      ".stack.yaml",
+      "cabal.config",
+      "package.yaml"
+    ],
+    "filetypes": [
+      "hs",
+      "lhs",
+      "haskell"
+    ],
+    "initializationOptions": {
+      "languageServerHaskell": {
+      }
+    }
+  }
+}
+```
+
+#### LanguageClient-neovim
+
+##### vim-plug
+If you use [vim-plug](https://github.com/junegunn/vim-plug), then you can do this by e.g.,
+including the following line in the Plug section of your `init.vim` or `~/.vimrc`:
 
 ```
 Plug 'autozimu/LanguageClient-neovim', {
@@ -404,13 +569,13 @@ Plug 'autozimu/LanguageClient-neovim', {
     \ }
 ```
 
-and issuing a `:PlugInstall` command within neovim.
+and issuing a `:PlugInstall` command within Neovim or Vim.
 
-#### Vim 8.0
-Clone [LanguageClient-neovim](https://github.com/autozimu/LanguageClient-neovim)
+##### Clone the LanguageClient-neovim repo
+As an alternative to using [vim-plug](https://github.com/junegunn/vim-plug) shown above, clone [LanguageClient-neovim](https://github.com/autozimu/LanguageClient-neovim)
 into `~/.vim/pack/XXX/start/`, where `XXX` is just a name for your "plugin suite".
 
-#### Sample `~/.vimrc`
+##### Sample `~/.vimrc`
 
 ```vim
 set rtp+=~/.vim/pack/XXX/start/LanguageClient-neovim
@@ -480,41 +645,13 @@ Install HIE, and then add the following to your `.spacemacs` config,
    ;; ...
    dotspacemacs-configuration-layers
    '(
+     (haskell :variables haskell-completion-backend 'lsp)
      lsp
-     (haskell :variables ;; Or optionally just haskell without the variables.
-              haskell-completion-backend 'ghci
-              haskell-process-type 'stack-ghci)
      )
-   dotspacemacs-additional-packages '(
-      (lsp-haskell :location (recipe :fetcher github :repo "emacs-lsp/lsp-haskell"))
-      )
-    ;; ...
     ))
 ```
 
-and then activate [`lsp-haskell`](https://github.com/emacs-lsp/lsp-haskell) in your `user-config` section,
-
-```lisp
-(defun dotspacemacs/user-config ()
-  "..."
-  (require 'lsp-haskell)
-  (add-hook 'haskell-mode-hook #'lsp-haskell-enable)
-  )
-```
-
-Now you should be able to use HIE in Spacemacs. I still recommend checking out [lsp-ui](https://github.com/emacs-lsp/lsp-ui) and [lsp-mode](https://github.com/emacs-lsp/lsp-mode).
-
-### Using HIE with Spacemacs on Nix Based Projects
-
-If you use HIE with spacemacs on nix-built haskell projects, you may want to try
-out [this spacemacs layer](https://github.com/benkolera/spacemacs-hie-nix). It
-has installation instructions which includes a nix expression to install
-everything that hie needs in your environment. It wraps the hie binary calls to
-use nix-sandbox to find the closest ancestor directory that has nixfiles.
-
-It is still pretty new and may change drastically as the author understands the
-lsp, lsp-ui, lsp-haskell, hie stack a bit better. PRs and feedback are very
-welcome on the layer's repo if you find it useful and/or lacking in some way.
+Now you should be able to use HIE in Spacemacs.
 
 ### Using HIE with Oni
 
@@ -561,17 +698,13 @@ Or you can set the environment variable `HIE_HOOGLE_DATABASE` to specify a speci
 ### Planned Features
 
  - [x] Multiproject support
+ - [x] New-build support
  - [ ] Project wide references
  - [ ] Cross project find definition
- - [ ] New-build support
- - [ ] HaRe refactorings
+ - [ ] More HaRe refactorings
  - [ ] More code actions
  - [ ] Cross project/dependency Find Definition
  - [ ] Case splitting, type insertion etc.
-
-### This is *not* yet another [`ghc-mod`](https://github.com/kazu-yamamoto/ghc-mod) or [`ide-backend`](https://github.com/fpco/ide-backend) project
-
- > Both the ghc-mod and ide-backend maintainers have agreed to contribute code to this new repository and then rebase the old repos on this. The reason we're using a new repo instead of modifying one of the existing ones is so that the existing projects experience no disruption during this migration process. If this was a new set of people starting a new project without support from existing projects, I'd agree with you. But Alan's reached out to existing players already, which is an important distinction.
 
 This project is not started from scratch:
 
@@ -589,40 +722,35 @@ This project is not started from scratch:
  - Fork this repo and hack as much as you can.
  - Ask @alanz or @hvr to join the project.
 
-## Architecture
-
-Below you find a short overview of the main architectural layers of `haskell-ide-engine`.
-For more info have a look in [the docs folder](/docs) at the root of this project, especially:
-
- - The [Architecture discussion](docs/Architecture.md)
- - The [Protocol discussion](docs/Protocol.md)
- - The [Design discussion](docs/Design.md)
-
-### 1. BIOS layer
-
-[`ghc-mod`](https://github.com/kazu-yamamoto/ghc-mod) stays an AGPL project,
-and is used for its "awesome sauce" in terms of
-the BIOS functions that it does so well. This interface is
-[straightforward to use](http://alanz.github.io/haskell%20refactorer/2015/10/02/ghc-mod-for-tooling),
-and if a license-constrained user wants to do something else it is also easy to
-replace, if there is strong control of the operating environment.
-
-### 2. Plugin layer
-
-A layer providing a point to integrate tools and existing functions, probably
-including ghci.
-
-### 3. IDE interfacing layer
-
-The focus is currently on [LSP](https://github.com/Microsoft/language-server-protocol/blob/master/protocol.md) as the protocol we use to interface with IDEs.
-
-Existing transports are still functional for the time being.
-
 ## Documentation
 
 All the documentation is in [the docs folder](/docs) at the root of this project.
 
+### Architecture
+
+Have a look at
+
+ - the [Architecture discussion](docs/Architecture.md),
+ - [Protocol discussion](docs/Protocol.md) and
+ - [Design discussion](docs/Design.md).
+
 ## Troubleshooting
+
+### Emacs
+
+#### Parse errors, file state going out of sync
+With the `lsp-mode` client for Emacs, it seems that the document can very easily get out of sync between, which leads to parse errors being displayed. To fix this, enable full document synchronization with
+
+```elisp
+(setq lsp-document-sync-method 'full)
+```
+
+#### [`emacs-direnv`](https://github.com/wbolster/emacs-direnv) loads environment too late
+`emacs-direnv` sometimes loads the environment too late, meaning `lsp-mode` won't be able to find correct GHC/cabal versions. To fix this, add a direnv update hook *after* adding the lsp hook for `haskell-mode` (meaning the direnv hook is executed first, because hooks are LIFO):
+```elisp
+(add-hook 'haskell-mode-hook 'lsp)
+(add-hook 'haskell-mode-hook 'direnv-update-environment)
+```
 
 ### DYLD on macOS
 
@@ -655,11 +783,57 @@ These builds have a dependency on [homebrew](https://brew.sh)'s `gmp` library. I
 
 ### cannot satisfy -package-id \<package\>
 
-#### Is \<package\> base-x? 
-Make sure that you are running the correct version of hie for your version of ghc, or check out hie-wrapper.
+#### Is \<package\> base-x?
+Make sure that the GHC version of HIE matches the one of the project. After that run
+```
+$ cabal configure
+```
+
+and then restart HIE (e.g. by restarting your editor).
 
 #### Is there a hash (#) after \<package\>?
 Delete any `.ghc.environment*` files in your project root and try again. (At the time of writing, cabal new-style projects are not supported with ghc-mod)
 
 #### Otherwise
-Try running `cabal update`. 
+Try running `cabal update`.
+
+### Liquid Haskell
+
+Liquid Haskell requires an SMT solver on the path. We do not take care of installing one, thus, Liquid Haskell will not run until one is installed.
+The recommended SMT solver is [z3](https://github.com/Z3Prover/z3). To run the tests, it is also required to have an SMT solver on the path, otherwise the tests will fail for Liquid Haskell.
+
+### Profiling `haskell-ide-engine`.
+
+If you think `haskell-ide-engine` is using a lot of memory then the most useful
+thing you can do is prepare a profile of the memory usage whilst you're using
+the program.
+
+1. Add `profiling: True` to the cabal.project file of `haskell-ide-engine`
+2. `cabal new-build hie`
+3. (IMPORTANT) Add `profiling: True` to the `cabal.project` file of the project you want to profile.
+4. Make a wrapper script which calls the `hie` you built in step 2 with the additional options `+RTS -hd -l-au`
+5. Modify your editor settings to call this wrapper script instead of looking for `hie` on the path
+6. Try using `h-i-e` as normal and then process the `*.eventlog` which will be created using  [`eventlog2html`](http://hackage.haskell.org/package/eventlog2html).
+7. Repeat the process again using different profiling options if you like.
+
+#### Using `ghc-events-analyze`
+
+`haskell-ide-engine` contains the necessary tracing functions to work with [`ghc-events-analyze`](http://www.well-typed.com/blog/2014/02/ghc-events-analyze/). Each
+request which is made will emit an event to the eventlog when it starts and finishes. This way you
+can see if there are any requests which are taking a long time to complete or are blocking.
+
+1. Make sure that `hie` is linked with the `-eventlog` option. This can be achieved by adding the flag
+to the `ghc-options` field in the cabal file.
+2. Run `hie` as normal but with the addition of `+RTS -l`. This will produce an eventlog called `hie.eventlog`.
+3. Run `ghc-events-analyze` on the `hie.eventlog` file to produce the rendered SVG. Warning, this might take a while and produce a big SVG file.
+
+The default options for `ghc-events-analyze` will produce quite a wide chart which is difficult to view. You can try using less buckets in order
+to make the chart quicker to generate and faster to render.
+
+```
+ghc-events-analyze hie.eventlog -b 100
+```
+
+This support is similar to the logging capabilities [built into GHC](https://www.haskell.org/ghc/blog/20190924-eventful-ghc.html).
+
+

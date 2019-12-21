@@ -1,5 +1,3 @@
-{-# LANGUAGE DeriveAnyClass    #-}
-{-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Haskell.Ide.Engine.Plugin.Brittany where
 
@@ -11,86 +9,84 @@ import           Data.Coerce
 import           Data.Semigroup
 import           Data.Text                             (Text)
 import qualified Data.Text                             as T
-import qualified Data.Text.IO                          as T
-import           GHC.Generics
-import qualified GhcMod.Utils                          as GM
 import           Haskell.Ide.Engine.MonadTypes
 import           Haskell.Ide.Engine.PluginUtils
 import           Language.Haskell.Brittany
 import qualified Language.Haskell.LSP.Types            as J
+import qualified Language.Haskell.LSP.Types.Lens       as J
 import           System.FilePath (FilePath, takeDirectory)
 import           Data.Maybe (maybeToList)
 
-data FormatParams = FormatParams Int Uri (Maybe Range)
-     deriving (Eq, Show, Generic, FromJSON, ToJSON)
-
 brittanyDescriptor :: PluginId -> PluginDescriptor
 brittanyDescriptor plId = PluginDescriptor
-  { pluginId       = plId
-  , pluginName     = "Brittany"
-  , pluginDesc     = "Brittany is a tool to format source code."
-  , pluginCommands = [ PluginCommand "format"
-                                     "Format a range of text or document"
-                                     cmd
-                     ]
+  { pluginId                 = plId
+  , pluginName               = "Brittany"
+  , pluginDesc               = "Brittany is a tool to format source code."
+  , pluginCommands           = []
   , pluginCodeActionProvider = Nothing
   , pluginDiagnosticProvider = Nothing
-  , pluginHoverProvider = Nothing
-  , pluginSymbolProvider = Nothing
+  , pluginHoverProvider      = Nothing
+  , pluginSymbolProvider     = Nothing
+  , pluginFormattingProvider = Just provider
   }
- where
-  cmd :: CommandFunc FormatParams [J.TextEdit]
-  cmd =
-    CmdSync $ \(FormatParams tabSize uri range) -> brittanyCmd tabSize uri range
 
-brittanyCmd :: Int -> Uri -> Maybe Range -> IdeGhcM (IdeResult [J.TextEdit])
-brittanyCmd tabSize uri range =
-  pluginGetFile "brittanyCmd: " uri $ \file -> do
-    confFile <- liftIO $ getConfFile file
-    text <- GM.withMappedFile file $ liftIO . T.readFile
-    case range of
-      Just r -> do
-        -- format selection
-        res <- liftIO $ runBrittany tabSize confFile $ extractRange r text
-        case res of
-          Left err -> return $ IdeResultFail (IdeError PluginError
-                      (T.pack $ "brittanyCmd: " ++ unlines (map showErr err)) Null)
-          Right newText -> do
-            let textEdit = J.TextEdit (normalize r) newText
-            return $ IdeResultOk [textEdit]
-      Nothing -> do
-        -- format document
-        res <- liftIO $ runBrittany tabSize confFile text
-        case res of
-          Left err -> return $ IdeResultFail (IdeError PluginError
-                      (T.pack $ "brittanyCmd: " ++ unlines (map showErr err)) Null)
-          Right newText -> do
-            let startPos = Position 0 0
-                endPos = Position lastLine 0
-                {-
-                In order to replace everything including newline characters,
-                the end range should extend below the last line. From the specification:
-                "If you want to specify a range that contains a line including
-                the line ending character(s) then use an end position denoting
-                the start of the next line"
-                -}
-                lastLine = length $ T.lines text
-                textEdit = J.TextEdit (Range startPos endPos) newText
-            return $ IdeResultOk [textEdit]
+-- | Formatter provider of Brittany.
+-- Formats the given source in either a given Range or the whole Document.
+-- If the provider fails an error is returned that can be displayed to the user.
+provider
+  :: MonadIO m
+  => Text
+  -> Uri
+  -> FormattingType
+  -> FormattingOptions
+  -> m (IdeResult [TextEdit])
+provider text uri formatType opts = pluginGetFile "brittanyCmd: " uri $ \fp -> do
+  confFile <- liftIO $ getConfFile fp
+  let (range, selectedContents) = case formatType of
+        FormatText    -> (fullRange text, text)
+        FormatRange r -> (normalize r, extractRange r text)
 
-extractRange :: Range -> Text -> Text
-extractRange (Range (Position sl _) (Position el _)) s = newS
-  where focusLines = take (el-sl+1) $ drop sl $ T.lines s
-        newS = T.unlines focusLines
+  res <- formatText confFile opts selectedContents
+  case res of
+    Left err -> return $ IdeResultFail
+      (IdeError PluginError
+                (T.pack $ "brittanyCmd: " ++ unlines (map showErr err))
+                Null
+      )
+    Right newText -> do
+      let textEdit = J.TextEdit range newText
+      return $ IdeResultOk [textEdit]
 
+-- | Primitive to format text with the given option.
+-- May not throw exceptions but return a Left value.
+-- Errors may be presented to the user.
+formatText
+  :: MonadIO m
+  => Maybe FilePath -- ^ Path to configs. If Nothing, default configs will be used.
+  -> FormattingOptions -- ^ Options for the formatter such as indentation.
+  -> Text -- ^ Text to format
+  -> m (Either [BrittanyError] Text) -- ^ Either formatted Text or a error from Brittany.
+formatText confFile opts text =
+  liftIO $ runBrittany tabSize confFile text
+  where tabSize = opts ^. J.tabSize
+
+-- | Extend to the line below and above to replace newline character.
 normalize :: Range -> Range
 normalize (Range (Position sl _) (Position el _)) =
-  -- Extend to the line below to replace newline character, as above
   Range (Position sl 0) (Position (el + 1) 0)
 
+-- | Recursively search in every directory of the given filepath for brittany.yaml.
+-- If no such file has been found, return Nothing.
 getConfFile :: FilePath -> IO (Maybe FilePath)
 getConfFile = findLocalConfigPath . takeDirectory
 
+-- | Run Brittany on the given text with the given tab size and
+-- a configuration path. If no configuration path is given, a
+-- default configuration is chosen. The configuration may overwrite
+-- tab size parameter.
+--
+-- Returns either a list of Brittany Errors or the reformatted text.
+-- May not throw an exception.
 runBrittany :: Int              -- ^ tab  size
             -> Maybe FilePath   -- ^ local config file
             -> Text             -- ^ text to format
@@ -123,4 +119,3 @@ showErr (ErrorUnusedComment s)  = s
 showErr (LayoutWarning s)       = s
 showErr (ErrorUnknownNode s _)  = s
 showErr ErrorOutputCheck        = "Brittany error - invalid output"
-

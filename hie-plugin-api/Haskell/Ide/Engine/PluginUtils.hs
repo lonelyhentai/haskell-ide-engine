@@ -17,6 +17,8 @@ module Haskell.Ide.Engine.PluginUtils
   , srcSpan2Loc
   , unpackRealSrcSpan
   , reverseMapFile
+  , extractRange
+  , fullRange
   , fileInfo
   , realSrcSpan2Range
   , canonicalizeUri
@@ -27,6 +29,12 @@ module Haskell.Ide.Engine.PluginUtils
   , unPos
   , toPos
   , clientSupportsDocumentChanges
+  , readVFS
+  , getRangeFromVFS
+  , rangeLinesFromVfs
+
+  , gcatches
+  , ErrorHandler(..)
   ) where
 
 import           Control.Monad.IO.Class
@@ -40,15 +48,17 @@ import           Data.Monoid
 import qualified Data.Text                             as T
 import qualified Data.Text.IO                          as T
 import           Data.Maybe
-import qualified GhcMod.Utils                          as GM
 import           FastString
-import           Haskell.Ide.Engine.MonadTypes
+import           Haskell.Ide.Engine.PluginsIdeMonads
+import           Haskell.Ide.Engine.GhcModuleCache
 import           Haskell.Ide.Engine.MonadFunctions
 import           Haskell.Ide.Engine.ArtifactMap
+import           Language.Haskell.LSP.VFS
 import           Language.Haskell.LSP.Types.Capabilities
 import qualified Language.Haskell.LSP.Types            as J
 import           Prelude                               hiding (log)
-import           SrcLoc
+import           SrcLoc (SrcSpan(..), RealSrcSpan(..))
+import           Exception
 import           System.Directory
 import           System.FilePath
 
@@ -84,6 +94,8 @@ realSrcSpan2Range = uncurry Range . unpackRealSrcSpan
 srcSpan2Range :: SrcSpan -> Either T.Text Range
 srcSpan2Range spn =
   realSrcSpan2Range <$> getRealSrcSpan spn
+
+
 
 reverseMapFile :: MonadIO m => (FilePath -> FilePath) -> FilePath -> m FilePath
 reverseMapFile rfm fp = do
@@ -142,7 +154,7 @@ makeDiffResult :: FilePath -> T.Text -> (FilePath -> FilePath) -> IdeM Workspace
 makeDiffResult orig new fileMap = do
   origText <- liftIO $ T.readFile orig
   let fp' = fileMap orig
-  fp <- liftIO $ GM.makeAbsolute' fp'
+  fp <- liftIO $ makeAbsolute fp'
   diffText (filePathToUri fp,origText) new IncludeDeletions
 
 -- | A version of 'makeDiffResult' that has does not insert any deletions
@@ -150,7 +162,7 @@ makeAdditiveDiffResult :: FilePath -> T.Text -> (FilePath -> FilePath) -> IdeM W
 makeAdditiveDiffResult orig new fileMap = do
   origText <- liftIO $ T.readFile orig
   let fp' = fileMap orig
-  fp <- liftIO $ GM.makeAbsolute' fp'
+  fp <- liftIO $ makeAbsolute fp'
   diffText (filePathToUri fp,origText) new SkipDeletions
 
 -- | Generate a 'WorkspaceEdit' value from a pair of source Text
@@ -221,6 +233,27 @@ diffText' supports (f,fText) f2Text withDeletions  =
 
 -- ---------------------------------------------------------------------
 
+extractRange :: Range -> T.Text -> T.Text
+extractRange (Range (Position sl _) (Position el _)) s = newS
+  where focusLines = take (el-sl+1) $ drop sl $ T.lines s
+        newS = T.unlines focusLines
+
+-- | Gets the range that covers the entire text
+fullRange :: T.Text -> Range
+fullRange s = Range startPos endPos
+  where startPos = Position 0 0
+        endPos = Position lastLine 0
+        {-
+        In order to replace everything including newline characters,
+        the end range should extend below the last line. From the specification:
+        "If you want to specify a range that contains a line including
+        the line ending character(s) then use an end position denoting
+        the start of the next line"
+        -}
+        lastLine = length $ T.lines s
+
+-- ---------------------------------------------------------------------
+
 -- | Returns the directory and file name
 fileInfo :: T.Text -> (FilePath,FilePath)
 fileInfo tfileName =
@@ -232,9 +265,38 @@ fileInfo tfileName =
 
 clientSupportsDocumentChanges :: IdeM Bool
 clientSupportsDocumentChanges = do
-  ClientCapabilities mwCaps _ _ <- getClientCapabilities
+  ClientCapabilities mwCaps _ _ _ <- getClientCapabilities
   let supports = do
         wCaps <- mwCaps
         WorkspaceEditClientCapabilities mDc <- _workspaceEdit wCaps
         mDc
   return $ fromMaybe False supports
+
+-- ---------------------------------------------------------------------
+
+readVFS :: (MonadIde m, MonadIO m) => Uri -> m (Maybe T.Text)
+readVFS uri = do
+  mvf <- getVirtualFile uri
+  case mvf of
+    Just vf -> return $ Just (virtualFileText vf)
+    Nothing -> return Nothing
+
+getRangeFromVFS :: (MonadIde m, MonadIO m) => Uri -> Range -> m (Maybe T.Text)
+getRangeFromVFS uri rg = do
+  mvf <- getVirtualFile uri
+  case mvf of
+    Just vfs -> return $ Just $ rangeLinesFromVfs vfs rg
+    Nothing  -> return Nothing
+
+
+-- Error catching utilities
+
+data ErrorHandler m a = forall e . Exception e => ErrorHandler (e -> m a)
+
+gcatches :: forall m a . (MonadIO m, ExceptionMonad m) => m a -> [ErrorHandler m a] -> m a
+gcatches act handlers = gcatch act h
+  where
+    h :: SomeException -> m a
+    h e = foldr (\(ErrorHandler hand) me -> maybe me hand (fromException e)) (liftIO $ throw e) handlers
+
+
